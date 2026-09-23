@@ -62,6 +62,8 @@ enum CLI {
         var lines: [PlannedLine] = []
         var timing: BackendTiming?
         var ranking: [MemeCandidate] = []
+        var cloudName: String?
+        var cloudNote: String?
 
         if !options.files.isEmpty {
             // 显式指定素材（Codex 插件按语义挑好素材后走这条路）
@@ -97,27 +99,41 @@ enum CLI {
             let ranked = engine.rank(query: options.query, backend: options.backend)
             ranking = ranked.candidates
             timing = ranked.timing
-            lines = planner.plan(query: options.query, candidates: ranked.candidates)
+
+            if options.engine == .cloud {
+                if let outcome = cloudPlan(query: options.query, mode: options.mode, candidates: ranked.candidates, count: settings.maxImages) {
+                    lines = outcome.lines
+                    cloudName = outcome.semanticName
+                    cloudNote = outcome.note
+                } else {
+                    cloudNote = "云端编排失败，已回退本地语义引擎"
+                }
+            }
+            if lines.isEmpty {
+                lines = planner.plan(query: options.query, candidates: ranked.candidates)
+            }
         }
         guard !lines.isEmpty else {
             FileHandle.standardError.write(Data("没有匹配到任何素材\n".utf8))
             return
         }
 
-        let name = planner.semanticName(
-            query: options.query,
-            lines: lines,
-            topics: TopicLexicon.matchTopics(in: TopicLexicon.normalized(options.query))
-        )
+        let name = cloudName?.isEmpty == false
+            ? cloudName!
+            : planner.semanticName(
+                query: options.query,
+                lines: lines,
+                topics: TopicLexicon.matchTopics(in: TopicLexicon.normalized(options.query))
+            )
         let plan = StitchPlan(
             query: options.query,
             mode: options.mode,
             lines: lines,
             semanticName: name,
-            source: options.files.isEmpty ? "本地语义引擎" : "外部指定素材",
+            source: !options.files.isEmpty ? "外部指定素材" : (cloudName == nil ? "本地语义引擎" : "云端 \(settings.cloudModel)"),
             elapsed: 0,
             timing: timing,
-            cloudNote: nil
+            cloudNote: cloudNote
         )
 
         do {
@@ -214,7 +230,40 @@ enum CLI {
         return options
     }
 
+    /// 同步等待云端编排（CLI 需要阻塞式返回）
+    private static func cloudPlan(
+        query: String,
+        mode: StitchMode,
+        candidates: [MemeCandidate],
+        count: Int
+    ) -> CloudPlanner.Outcome? {
+        let planner = CloudPlanner()
+        let semaphore = DispatchSemaphore(value: 0)
+        var outcome: CloudPlanner.Outcome?
+        var failure: String?
+        Task {
+            do {
+                outcome = try await planner.plan(
+                    query: query,
+                    mode: mode,
+                    candidates: candidates,
+                    count: count,
+                    settings: AppSettings.shared
+                )
+            } catch {
+                failure = error.localizedDescription
+            }
+            semaphore.signal()
+        }
+        semaphore.wait()
+        if let failure {
+            FileHandle.standardError.write(Data("云端编排失败：\(failure)\n".utf8))
+        }
+        return outcome
+    }
+
     private static func printUsage() {
+
         print("""
         ZVV 连续对话表情包生成器 · 命令行模式
 
