@@ -1,3 +1,5 @@
+<img src="macos-app/Resources/AppIcon.png" width="132" align="right" alt="ZVV-quest 图标">
+
 # ZVV-quest
 
 把一句普通的中文，变成一张**张维为（ZVV）连续对话表情包拼接图**。
@@ -15,6 +17,23 @@
 
 ---
 
+## 0. 下载安装（第一版 v0.1.0）
+
+到 [Releases](https://github.com/lch1026/ZVV-quest/releases/latest) 下载
+`ZVVQuest-0.1.0-macos.zip`，解压后把 `ZVVQuest.app` 拖进「应用程序」即可。
+
+* 通用二进制（Apple 芯片 + Intel），最低 macOS 14.0。
+* 应用是**临时签名**（没有做 Apple 公证），首次打开如果提示“无法验证开发者”，
+  在图标上右键 →「打开」；或者执行一次：
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/ZVVQuest.app
+  ```
+
+* 分发包里已经内置了 `vv/` 素材库（433 张），下载后开箱可用，不需要再找素材。
+
+---
+
 ## 1. 快速开始
 
 ### 1.1 构建并运行 macOS 应用
@@ -25,7 +44,11 @@ cd macos-app
 open dist/ZVVQuest.app
 ```
 
-构建脚本会自动挑选可用的 macOS SDK、把 `vv/` 素材库打进 App（也可以在设置里另外指定目录）、生成并嵌入 App 图标。
+构建脚本会自动挑选可用的 macOS SDK、把 `vv/` 素材库打进 App（也可以在设置里另外指定目录）、生成并嵌入 App 图标，
+并默认产出 **arm64 + x86_64 通用二进制**（最低 macOS 14.0，可用 `ZVV_ARCHS` / `ZVV_DEPLOY_MIN` 调整）。
+
+图标由根目录的 `图标.png` 提供：它被复制为 `macos-app/Resources/AppIcon.png`，
+由 `macos-app/tools/make-icon.sh` 转成 `Resources/AppIcon.icns` 后打进 App。
 
 ### 1.2 命令行模式（脚本与插件共用同一套引擎）
 
@@ -100,7 +123,8 @@ ZVV-quest/
 │   │   ├── System/            硬件监控、剪贴板
 │   │   ├── Views/             生成 / 图库 / 设置 三个界面
 │   │   └── CLI.swift          命令行入口（插件复用）
-│   ├── tools/                 图标生成脚本
+│   ├── Resources/             AppIcon.png（图标源文件）+ AppIcon.icns（构建产物）
+│   ├── tools/                 图标生成脚本（png → icns）
 │   ├── build.sh               构建 + 打包 .app
 │   └── run.sh                 构建并运行
 └── xcode-tools/               Codex 插件
@@ -129,6 +153,8 @@ ZVV-quest/
 ## 5. 已知环境问题
 
 这台机器的 Command Line Tools 有一个组合问题：**新 SDK 把 SwiftUI 的 `@State` 等属性包装器改成了宏（实现在 `SwiftUICore` 里），而 CLT 不带 `SwiftUIMacros` 插件**（装了完整 Xcode 才有）。因此 `build.sh` 会拿编译器实际试编译一段带 `@State` 的代码，自动挑选可用的 SDK；结果缓存在 `macos-app/build/sdk-choice.txt`，可用环境变量 `ZVV_SDK` 覆盖。编译时始终指定可写的 `-module-cache-path`，否则会看到误导性的 “this SDK is not supported by the compiler”。
+
+另外，系统的 `iconutil` 在受限沙箱里会报 `Invalid Iconset.`（同样的 iconset 在沙箱外正常），所以图标只有在生成 `Resources/AppIcon.icns` 时才需要在正常终端里跑一次；`.icns` 已经提交进仓库，日常构建不需要重新生成。
 
 ---
 

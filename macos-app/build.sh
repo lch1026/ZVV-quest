@@ -57,33 +57,60 @@ PROBE
 
 SDK="$(pick_sdk)"
 SDK_MAJOR="$(basename "$SDK" | sed -e 's/^MacOSX//' -e 's/\.sdk$//' -e 's/\..*$//')"
-DEPLOY_TARGET="${ZVV_DEPLOY_TARGET:-arm64-apple-macos${SDK_MAJOR}.0}"
+# 最低支持的 macOS 版本：默认 14.0（与 Info.plist 一致），老系统也能直接装
+DEPLOY_MIN="${ZVV_DEPLOY_MIN:-14.0}"
+# 默认出「通用二进制」，Apple 芯片和 Intel 芯片都能跑；可用 ZVV_ARCHS 只留一个架构
+ARCHS="${ZVV_ARCHS:-arm64 x86_64}"
 
 mkdir -p "$BUILD_DIR" "$DIST_DIR" "$MODULE_CACHE"
 
-echo "==> 编译 Swift 源码（target ${DEPLOY_TARGET}）"
-echo "    使用 SDK：$SDK"
 SOURCES=()
 while IFS= read -r file; do SOURCES+=("$file"); done < <(find "$ROOT/Sources" -name '*.swift' | sort)
 
-swiftc \
-	-O \
-	-parse-as-library \
-	-sdk "$SDK" \
-	-target "$DEPLOY_TARGET" \
-	-module-cache-path "$MODULE_CACHE" \
-	-o "$BUILD_DIR/$APP_NAME" \
-	"${SOURCES[@]}"
+echo "    使用 SDK：$SDK"
+if [ -n "${ZVV_DEPLOY_TARGET:-}" ]; then
+	echo "==> 编译 Swift 源码（target ${ZVV_DEPLOY_TARGET}）"
+	swiftc -O -parse-as-library -sdk "$SDK" -target "$ZVV_DEPLOY_TARGET" \
+		-module-cache-path "$MODULE_CACHE/single" \
+		-o "$BUILD_DIR/$APP_NAME" "${SOURCES[@]}"
+else
+	echo "==> 编译 Swift 源码（架构：${ARCHS}，最低系统：macOS ${DEPLOY_MIN}）"
+	SLICES=()
+	for arch in $ARCHS; do
+		slice="$BUILD_DIR/$APP_NAME-$arch"
+		rm -f "$slice"
+		echo "    - ${arch}"
+		if ! swiftc -O -parse-as-library -sdk "$SDK" -target "${arch}-apple-macos${DEPLOY_MIN}" \
+			-module-cache-path "$MODULE_CACHE/$arch" \
+			-o "$slice" "${SOURCES[@]}"; then
+			echo "    （${arch} 架构编译失败，跳过该架构）"
+			continue
+		fi
+		SLICES+=("$slice")
+	done
+	if [ "${#SLICES[@]}" -eq 0 ]; then
+		echo "构建失败：没有任何可用架构" >&2
+		exit 1
+	elif [ "${#SLICES[@]}" -eq 1 ]; then
+		cp "${SLICES[0]}" "$BUILD_DIR/$APP_NAME"
+	else
+		lipo -create -output "$BUILD_DIR/$APP_NAME" "${SLICES[@]}"
+	fi
+fi
 
 echo "==> 组装 App Bundle"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BUILD_DIR/$APP_NAME" "$APP/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Info.plist" "$APP/Contents/Info.plist"
-# 最低系统版本跟随实际使用的 SDK
-/usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion ${SDK_MAJOR}.0" "$APP/Contents/Info.plist" >/dev/null 2>&1 || true
+# 最低系统版本：默认 14.0，可用 ZVV_DEPLOY_MIN 覆盖
+/usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion ${DEPLOY_MIN}" "$APP/Contents/Info.plist" >/dev/null 2>&1 || true
 if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
 	cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+elif [ -f "$ROOT/Resources/AppIcon.png" ]; then
+	# 没有现成的 .icns 时，从 Resources/AppIcon.png 现场生成（需要系统的 iconutil）
+	"$ROOT/tools/make-icon.sh" >/dev/null 2>&1 || echo "（图标生成跳过，将使用系统默认图标）"
+	[ -f "$ROOT/Resources/AppIcon.icns" ] && cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
 
 # 内置素材库：优先用环境变量指定的目录，否则自动往上找 vv
