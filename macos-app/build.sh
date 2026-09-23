@@ -123,6 +123,22 @@ if [ -z "$LIBRARY_SOURCE" ]; then
 		fi
 	done
 fi
+# 没有现成的 vv 目录时，看看仓库根目录有没有打包好的初始表情包 vv.zip
+if [ -z "$LIBRARY_SOURCE" ]; then
+	for candidate in "$ROOT/vv.zip" "$ROOT/../vv.zip" "$ROOT/../../vv.zip" "$ROOT/../../../vv.zip"; do
+		if [ -f "$candidate" ]; then
+			echo "==> 解压初始表情包：$candidate"
+			rm -rf "$BUILD_DIR/vv-extract"
+			mkdir -p "$BUILD_DIR/vv-extract"
+			if unzip -qo "$candidate" -d "$BUILD_DIR/vv-extract" && [ -d "$BUILD_DIR/vv-extract/vv" ]; then
+				LIBRARY_SOURCE="$BUILD_DIR/vv-extract/vv"
+			else
+				echo "（解压失败，App 会在运行时自动查找素材）"
+			fi
+			break
+		fi
+	done
+fi
 if [ -n "$LIBRARY_SOURCE" ] && [ -d "$LIBRARY_SOURCE" ]; then
 	echo "==> 内置素材库：$LIBRARY_SOURCE"
 	mkdir -p "$APP/Contents/Resources/vv"
