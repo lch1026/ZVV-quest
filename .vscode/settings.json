@@ -1,0 +1,16 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/xcode-tools/.venv/bin/python",
+  "python.analysis.extraPaths": ["${workspaceFolder}/xcode-tools/scripts"],
+  "files.exclude": {
+    "**/.DS_Store": true,
+    "macos-app/build": true,
+    "xcode-tools/**/__pycache__": true
+  },
+  "search.exclude": {
+    "xcode-tools/.venv": true,
+    "macos-app/dist": true
+  },
+  "files.associations": {
+    "*.swiftinterface": "swift"
+  }
+}

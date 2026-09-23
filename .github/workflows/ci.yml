@@ -1,0 +1,77 @@
+name: build
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos-app:
+    name: 构建 macOS App
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备素材目录
+        run: |
+          # 仓库里不放表情包素材，这里放两张占位图保证构建流程能跑通
+          mkdir -p vv
+          python3 - <<'PY'
+          import struct, zlib, pathlib
+          def png(path, w, h, color):
+              raw = b"".join(b"\x00" + bytes(color) * w for _ in range(h))
+              def chunk(tag, data):
+                  return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+              header = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+              pathlib.Path(path).write_bytes(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+          png("vv/我觉得这就是一种自信.png", 64, 48, (180, 40, 40))
+          png("vv/难绷.png", 64, 48, (40, 40, 180))
+          PY
+
+      - name: 构建
+        run: ./macos-app/build.sh
+
+      - name: 冒烟测试（命令行）
+        run: |
+          BIN="macos-app/dist/ZVVQuest.app/Contents/MacOS/ZVVQuest"
+          "$BIN" --help
+          "$BIN" --generate "这句话需要一张表情包" --mode subtitle --count 2 \
+            --library vv --out "$RUNNER_TEMP/zvv.png" --json | tee "$RUNNER_TEMP/plan.json"
+          test -s "$RUNNER_TEMP/zvv.png"
+
+      - name: 打包产物
+        run: cd macos-app && zip -qry "$RUNNER_TEMP/ZVVQuest-app.zip" dist/ZVVQuest.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZVVQuest-app
+          path: ${{ runner.temp }}/ZVVQuest-app.zip
+
+  python-tools:
+    name: 检查插件脚本
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 语法检查
+        run: python -m py_compile xcode-tools/scripts/*.py
+      - name: 打分函数自测（临时素材库）
+        run: |
+          mkdir -p /tmp/vv && cp xcode-tools/scripts/../../macos-app/README.md /tmp/vv/ 2>/dev/null || true
+          python - <<'PY'
+          import sys, pathlib, struct, zlib
+          sys.path.insert(0, "xcode-tools/scripts")
+          import zvv_common as common
+          items = [
+              {"path": "/tmp/vv/a.png", "title": "美国人生活水平很差", "topics": common.match_topics("美国人生活水平很差"), "bigrams": common.bigrams("美国人生活水平很差")},
+              {"path": "/tmp/vv/b.png", "title": "难绷", "topics": common.match_topics("难绷"), "bigrams": common.bigrams("难绷")},
+          ]
+          ranked = common.rank("美国人的生活水平其实没有想象中那么好", items)
+          assert ranked[0]["title"].startswith("美国人"), ranked
+          seq = common.pick_sequence(ranked, 2)
+          assert seq[-1]["role"] == "收尾"
+          print("打分与排序自测通过")
+          PY

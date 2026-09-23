@@ -1,0 +1,57 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ZVV: 构建 App",
+      "type": "shell",
+      "command": "./build.sh",
+      "options": { "cwd": "${workspaceFolder}/macos-app" },
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$swift"]
+    },
+    {
+      "label": "ZVV: 构建并运行",
+      "type": "shell",
+      "command": "./run.sh",
+      "options": { "cwd": "${workspaceFolder}/macos-app" },
+      "problemMatcher": []
+    },
+    {
+      "label": "ZVV: 重新生成图标",
+      "type": "shell",
+      "command": "./tools/make-icon.sh",
+      "options": { "cwd": "${workspaceFolder}/macos-app" },
+      "problemMatcher": []
+    },
+    {
+      "label": "ZVV: 命令行出图（当前输入）",
+      "type": "shell",
+      "command": "${workspaceFolder}/macos-app/dist/ZVVQuest.app/Contents/MacOS/ZVVQuest",
+      "args": ["--generate", "${input:zvvQuery}", "--mode", "${input:zvvMode}", "--count", "6", "--out", "/tmp/zvv-task.png"],
+      "problemMatcher": []
+    },
+    {
+      "label": "ZVV: 插件候选打分（当前输入）",
+      "type": "shell",
+      "command": "${config:python.defaultInterpreterPath}",
+      "args": ["scripts/zvv_select.py", "${input:zvvQuery}", "--top", "24"],
+      "options": { "cwd": "${workspaceFolder}/xcode-tools" },
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "zvvQuery",
+      "type": "promptString",
+      "description": "要表达的一句话",
+      "default": "美国人的生活水平其实没有想象中那么好"
+    },
+    {
+      "id": "zvvMode",
+      "type": "pickString",
+      "description": "拼接方式",
+      "options": ["subtitle", "full"],
+      "default": "subtitle"
+    }
+  ]
+}
